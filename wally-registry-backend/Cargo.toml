@@ -12,7 +12,7 @@ default = []
 s3-storage = ["dep:rusoto_core", "dep:rusoto_s3"]
 
 [dependencies]
-wally = { path = ".." }
+#wally = { path = ".." }
 
 # cloud-storage = { path = "../../cloud-storage-rs", version = "0.8.4", default-features = false, features = ["rustls-tls", "global-client"] }
 
@@ -37,6 +37,7 @@ url = { version = "2.2.1", features = ["serde"] }
 walkdir = "2.3.1"
 zip = "0.5.11"
 moka = "0.11.1"
+wally = "0.3.2"
 
 [dev-dependencies]
 tempfile = "3.1.0"

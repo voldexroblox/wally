@@ -12,15 +12,17 @@ RUN apt-get install -y ca-certificates libssl-dev pkg-config && rm -rf /var/lib/
 #
 # We must set the USER environment variable here or else cargo init will fail.
 RUN USER=root cargo new wally-registry-backend
-COPY wally-registry-backend/Cargo.toml /usr/app/wally-registry-backend/
-COPY Cargo.toml Cargo.lock /usr/app/
+COPY Cargo.toml /usr/app/wally-registry-backend/
+COPY Cargo.toml /usr/app/
+COPY Rocket.toml /usr/app/wally-registry-backend/
+COPY Rocket.toml /usr/app/
 COPY src/ /usr/app/src/
 
 RUN cargo build --package wally-registry-backend --release
 
 # Copy actual application source in and force a modified timestamp so that
 # Cargo will rebuild.
-COPY ./wally-registry-backend ./wally-registry-backend/
+COPY ./ /usr/app/wally-registry-backend/
 RUN touch wally-registry-backend/src/main.rs
 RUN cargo build --package wally-registry-backend --release
 

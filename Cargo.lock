@@ -3677,6 +3677,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "wally"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c19621eccf3a3aaf4f26bf271dd6237e47478da540dd7129ce4179f076d1150"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "crossterm",
+ "dirs",
+ "env_logger",
+ "fs-err",
+ "git2",
+ "globset",
+ "hex",
+ "indicatif",
+ "indoc",
+ "log",
+ "once_cell",
+ "opener",
+ "reqwest",
+ "rpassword",
+ "semver 0.11.0",
+ "serde",
+ "serde_json",
+ "structopt",
+ "tempfile",
+ "tokio",
+ "toml 0.5.8",
+ "toml_edit 0.2.0",
+ "ubyte",
+ "url",
+ "walkdir",
+ "whoami",
+ "zip",
+]
+
+[[package]]
 name = "wally-registry-backend"
 version = "0.3.2"
 dependencies = [
@@ -3702,7 +3739,7 @@ dependencies = [
  "tokio",
  "url",
  "walkdir",
- "wally",
+ "wally 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "zip",
 ]
 

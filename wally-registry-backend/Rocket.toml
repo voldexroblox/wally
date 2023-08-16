@@ -18,15 +18,41 @@ storage = { type = "local" }
 #
 auth = { type = "unauthenticated" }
 # In production, we recommend configuring an API key.
-# auth = { type = "api-key", value = "SOME-SECRET-KEY" }
+#auth = { type = "api-key", value = "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" }
 #
 # In the future, we'll support authenticating with GitHub.
 
 # The package index to use to store all of the package metadata.
-index_url = "https://github.com/voldexroblox/wally-index"
+#index_url = "https://github.com/UpliftGames/wally-index"
+index_url = "https://github.com/voldexroblox/voldex-wally-index"
 #
 # Here's the production config:
 # index_url = "https://github.com/UpliftGames/wally-index"
 
 [release]
+# The storage backend that the registry will use.
+# We default to local storage:
+storage = { type = "local" }
+#
+# ...but Uplift uses Google Cloud Storage in production:
+# storage = { type = "gcs", bucket = "GCS-BUCKET-NAME" }
+
+# The authentication strategy that the registry will use.
+# In 'unauthenticated' mode, all packages are public but read only.
+#
+auth = { type = "unauthenticated" }
+# In production, we recommend configuring an API key.
+#auth = { type = "api-key", value = "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" }
+#
+# In the future, we'll support authenticating with GitHub.
+
+# The package index to use to store all of the package metadata.
+#index_url = "https://github.com/UpliftGames/wally-index"
+index_url = "https://github.com/voldexroblox/voldex-wally-index"
+#access_token = "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"
+#github_token = "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"
+#
+# Here's the production config:
+# index_url = "https://github.com/UpliftGames/wally-index"
+
 log_level = "normal"
