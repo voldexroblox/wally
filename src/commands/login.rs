@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -9,11 +9,7 @@ use reqwest::Url;
 use serde::Deserialize;
 use structopt::StructOpt;
 
-use crate::{
-    auth::AuthStore,
-    manifest::Manifest,
-    package_index::{PackageIndex, PackageIndexConfig},
-};
+use crate::{auth::AuthStore, manifest::Manifest, package_index::PackageIndex};
 
 /// Log into a registry.
 #[derive(Debug, StructOpt)]
@@ -21,12 +17,6 @@ pub struct LoginSubcommand {
     /// Path to a project to decide how to login
     #[structopt(long = "project-path", default_value = ".")]
     pub project_path: PathBuf,
-    /// Auth token to set directly
-    #[structopt(long = "token")]
-    pub token: Option<String>,
-    /// URL of the remote index to add an auth token for
-    #[structopt(long = "api")]
-    pub api: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -34,12 +24,15 @@ struct DeviceCodeResponse {
     device_code: String,
     user_code: String,
     verification_uri: String,
+    expires_in: u64,
     interval: u64,
 }
 
 #[derive(Deserialize)]
 struct DeviceCodeAuth {
     access_token: String,
+    token_type: String,
+    scope: String,
 }
 
 #[derive(Deserialize)]
@@ -110,30 +103,17 @@ fn prompt_github_auth(api: url::Url, github_oauth_id: &str) -> anyhow::Result<()
     AuthStore::set_token(api.as_str(), Some(&auth.access_token))
 }
 
-fn fetch_package_index_config(project_path: &Path) -> anyhow::Result<PackageIndexConfig> {
-    let manifest = Manifest::load(project_path)?;
-    let registry = Url::parse(&manifest.package.registry)?;
-    let package_index = PackageIndex::new(&registry, None)?;
-    package_index.config()
-}
-
 impl LoginSubcommand {
     pub fn run(self) -> anyhow::Result<()> {
-        match (self.token, self.api) {
-            (Some(token), Some(api)) => AuthStore::set_token(&api, Some(&token)),
-            (Some(token), None) => {
-                let config = fetch_package_index_config(&self.project_path)?;
+        let manifest = Manifest::load(&self.project_path)?;
+        let registry = Url::parse(&manifest.package.registry)?;
+        let package_index = PackageIndex::new(&registry, None, true)?;
+        let api = package_index.config()?.api;
+        let github_oauth_id = package_index.config()?.github_oauth_id;
 
-                AuthStore::set_token(config.api.as_str(), Some(&token))
-            }
-            (None, _) => {
-                let config = fetch_package_index_config(&self.project_path)?;
-
-                match config.github_oauth_id {
-                    None => prompt_api_key(config.api),
-                    Some(github_oauth_id) => prompt_github_auth(config.api, &github_oauth_id),
-                }
-            }
+        match github_oauth_id {
+            None => prompt_api_key(api),
+            Some(github_oauth_id) => prompt_github_auth(api, &github_oauth_id),
         }
     }
 }

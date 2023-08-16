@@ -19,9 +19,6 @@ use crate::package_name::PackageName;
 pub struct PackageIndexConfig {
     pub api: Url,
     pub github_oauth_id: Option<String>,
-
-    #[serde(default)]
-    pub fallback_registries: Vec<String>,
 }
 
 pub struct PackageIndex {
@@ -51,7 +48,11 @@ pub struct PackageIndex {
 }
 
 impl PackageIndex {
-    pub fn new(index_url: &Url, access_token: Option<String>, ) -> anyhow::Result<Self> {
+    pub fn new(
+        index_url: &Url,
+        access_token: Option<String>,
+        update: bool,
+    ) -> anyhow::Result<Self> {
         let path = index_path(index_url)?;
         let repository = git_util::open_or_clone(access_token.clone(), index_url, &path)?;
 
@@ -64,7 +65,10 @@ impl PackageIndex {
             temp_dir: None,
         };
 
-        index.update()?;
+        if update {
+            index.update()?;
+        }
+
         Ok(index)
     }
 
@@ -97,10 +101,7 @@ impl PackageIndex {
     pub fn update(&self) -> anyhow::Result<()> {
         let repository = self.repository.lock().unwrap();
 
-        log::info!(
-            "Updating package index {}...",
-            repository.find_remote("origin")?.url().unwrap()
-        );
+        log::info!("Updating package index...");
         git_util::update_index(self.access_token.clone(), &repository)
             .with_context(|| format!("could not update package index"))?;
 

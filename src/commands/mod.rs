@@ -16,7 +16,9 @@ pub use manifest_to_json::ManifestToJsonSubcommand;
 pub use package::PackageSubcommand;
 pub use publish::PublishSubcommand;
 pub use search::SearchSubcommand;
-pub use update::{PackageSpec, UpdateSubcommand};
+pub use update::UpdateSubcommand;
+
+use std::path::PathBuf;
 
 use structopt::StructOpt;
 
@@ -37,7 +39,7 @@ impl Args {
             Subcommand::Init(subcommand) => subcommand.run(),
             Subcommand::Login(subcommand) => subcommand.run(),
             Subcommand::Logout(subcommand) => subcommand.run(),
-            Subcommand::Update(subcommand) => subcommand.run(self.global),
+            Subcommand::Update(subcommand) => subcommand.run(),
             Subcommand::Search(subcommand) => subcommand.run(),
             Subcommand::Package(subcommand) => subcommand.run(),
             Subcommand::Install(subcommand) => subcommand.run(self.global),
@@ -54,26 +56,21 @@ pub struct GlobalOptions {
     #[structopt(global = true, parse(from_occurrences), long = "verbose", short)]
     pub verbosity: u8,
 
-    /// Flag to indidate if we will be using a test registry. Usable only by tests.
+    /// Overrides the registry with a local registry. Usable only by tests.
     #[structopt(skip)]
-    pub test_registry: bool,
+    pub test_registry: Option<PathBuf>,
 
-    /// Specify if the package index should be temporary (to prevent multiple use conflicts). Usable only by tests.
+    /// Allows tests to specify if the package index should be temporary (to prevent multiple use conflicts). Usable only by tests.
     #[structopt(skip)]
     pub use_temp_index: bool,
-
-    /// Specify if a specific auth token should be provided. Usable only by tests.
-    #[structopt(skip)]
-    pub check_token: Option<String>,
 }
 
 impl Default for GlobalOptions {
     fn default() -> Self {
         Self {
             verbosity: 0,
-            test_registry: false,
+            test_registry: None,
             use_temp_index: false,
-            check_token: None,
         }
     }
 }

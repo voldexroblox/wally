@@ -27,17 +27,15 @@ use libwally::{
 };
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::http::Header;
-use rocket::request::{FromRequest, Outcome};
-use rocket::response::stream::ReaderStream;
-use rocket::serde::json::Json;
 use rocket::{
     data::{Data, ToByteUnit},
     fairing::AdHoc,
     http::{ContentType, Status},
-    response::content,
+    response::{Content, Stream},
     State,
 };
-use rocket::{Build, Request, Response};
+use rocket::{Request, Response};
+use rocket_contrib::json::Json;
 use semver::Version;
 use serde_json::json;
 use storage::StorageMode;
@@ -49,28 +47,21 @@ use crate::error::{ApiErrorContext, ApiErrorStatus, Error};
 use crate::search::SearchBackend;
 use crate::storage::{GcsStorage, LocalStorage, StorageBackend, StorageOutput};
 
-#[cfg(feature = "s3-storage")]
-use crate::storage::S3Storage;
-
 #[get("/")]
-fn root() -> content::RawJson<serde_json::Value> {
-    content::RawJson(json!({
+fn root() -> Json<serde_json::Value> {
+    Json(json!({
         "message": "Wally Registry is up and running!",
     }))
 }
 
 #[get("/v1/package-contents/<scope>/<name>/<version>")]
 async fn package_contents(
-    storage: &State<Box<dyn StorageBackend>>,
-    _read: Result<ReadAccess, Error>,
+    storage: State<'_, Box<dyn StorageBackend>>,
+    _read: ReadAccess,
     scope: String,
     name: String,
     version: String,
-    _cli_version: Result<WallyVersion, Error>,
-) -> Result<(ContentType, ReaderStream![StorageOutput]), Error> {
-    _read?;
-    _cli_version?;
-
+) -> Result<Content<Stream<StorageOutput>>, Error> {
     let package_name = PackageName::new(scope, name)
         .context("error parsing package name")
         .status(Status::BadRequest)?;
@@ -80,21 +71,19 @@ async fn package_contents(
         .status(Status::BadRequest)?;
     let package_id = PackageId::new(package_name, version);
 
-    match storage.read(&package_id).await.map(ReaderStream::one) {
-        Ok(stream) => Ok((ContentType::GZIP, stream)),
+    match storage.read(&package_id).await.map(Stream::from) {
+        Ok(stream) => Ok(Content(ContentType::GZIP, stream)),
         Err(e) => Err(e).status(Status::NotFound),
     }
 }
 
 #[get("/v1/package-metadata/<scope>/<name>")]
 async fn package_info(
-    index: &State<PackageIndex>,
-    _read: Result<ReadAccess, Error>,
+    index: State<'_, PackageIndex>,
+    _read: ReadAccess,
     scope: String,
     name: String,
 ) -> Result<Json<serde_json::Value>, Error> {
-    _read?;
-
     let package_name = PackageName::new(scope, name)
         .context("error parsing package name")
         .status(Status::BadRequest)?;
@@ -106,12 +95,10 @@ async fn package_info(
 
 #[get("/v1/package-search?<query>")]
 async fn package_search(
-    search_backend: &State<RwLock<SearchBackend>>,
-    _read: Result<ReadAccess, Error>,
+    search_backend: State<'_, RwLock<SearchBackend>>,
+    _read: ReadAccess,
     query: String,
 ) -> Result<Json<serde_json::Value>, Error> {
-    _read?;
-
     if let Ok(search_backend) = search_backend.read() {
         let result = search_backend.search(&query)?;
         Ok(Json(serde_json::to_value(result)?))
@@ -125,16 +112,12 @@ async fn package_search(
 
 #[post("/v1/publish", data = "<data>")]
 async fn publish(
-    storage: &State<Box<dyn StorageBackend>>,
-    search_backend: &State<RwLock<SearchBackend>>,
-    index: &State<PackageIndex>,
-    authorization: Result<WriteAccess, Error>,
-    _cli_version: Result<WallyVersion, Error>,
-    data: Data<'_>,
+    storage: State<'_, Box<dyn StorageBackend>>,
+    search_backend: State<'_, RwLock<SearchBackend>>,
+    index: State<'_, PackageIndex>,
+    authorization: WriteAccess,
+    data: Data,
 ) -> Result<Json<serde_json::Value>, Error> {
-    _cli_version?;
-    let authorization = authorization?;
-
     let contents = data
         .open(2.mebibytes())
         .into_bytes()
@@ -168,8 +151,8 @@ async fn publish(
         let user_id = github_info.id();
         let scope = package_id.name().scope();
 
-        if !index.is_scope_owner(scope, user_id)? {
-            index.add_scope_owner(scope, user_id)?;
+        if !index.is_scope_owner(&scope, &user_id)? {
+            index.add_scope_owner(&scope, &user_id)?;
         }
     }
 
@@ -223,7 +206,7 @@ fn get_manifest<R: Read + Seek>(archive: &mut ZipArchive<R>) -> anyhow::Result<M
     Ok(manifest)
 }
 
-pub fn server(figment: Figment) -> rocket::Rocket<Build> {
+pub fn server(figment: Figment) -> rocket::Rocket {
     let config: Config = figment.extract().expect("could not read configuration");
 
     println!("Using authentication mode: {:?}", config.auth);
@@ -231,13 +214,7 @@ pub fn server(figment: Figment) -> rocket::Rocket<Build> {
     println!("Using storage backend: {:?}", config.storage);
     let storage_backend: Box<dyn StorageBackend> = match config.storage {
         StorageMode::Local { path } => Box::new(LocalStorage::new(path)),
-        StorageMode::Gcs { bucket, cache_size } => {
-            Box::new(configure_gcs(bucket, cache_size).unwrap())
-        }
-        #[cfg(feature = "s3-storage")]
-        StorageMode::S3 { bucket, cache_size } => {
-            Box::new(configure_s3(bucket, cache_size).unwrap())
-        }
+        StorageMode::Gcs { bucket } => Box::new(configure_gcs(bucket).unwrap()),
     };
 
     println!("Cloning package index repository...");
@@ -254,8 +231,7 @@ pub fn server(figment: Figment) -> rocket::Rocket<Build> {
                 package_contents,
                 publish,
                 package_info,
-                package_search,
-                cors_options,
+                package_search
             ],
         )
         .manage(storage_backend)
@@ -265,7 +241,7 @@ pub fn server(figment: Figment) -> rocket::Rocket<Build> {
         .attach(Cors)
 }
 
-fn configure_gcs(bucket: String, cache_size: Option<u64>) -> anyhow::Result<GcsStorage> {
+fn configure_gcs(bucket: String) -> anyhow::Result<GcsStorage> {
     use cloud_storage_lite::{
         token_provider::{
             oauth::{OAuthTokenProvider, ServiceAccount, SCOPE_STORAGE_FULL_CONTROL},
@@ -280,27 +256,7 @@ fn configure_gcs(bucket: String, cache_size: Option<u64>) -> anyhow::Result<GcsS
     )?);
     let client = Client::new(token_provider).into_bucket_client(bucket);
 
-    Ok(GcsStorage::new(client, cache_size))
-}
-
-#[cfg(feature = "s3-storage")]
-fn configure_s3(bucket: String, cache_size: Option<u64>) -> anyhow::Result<S3Storage> {
-    use std::env;
-
-    use rusoto_core::{credential::ChainProvider, request::HttpClient, Region};
-
-    use rusoto_s3::S3Client;
-
-    let client = S3Client::new_with(
-        HttpClient::new()?,
-        ChainProvider::new(),
-        Region::Custom {
-            name: env::var("AWS_REGION_NAME").unwrap_or_else(|_| "us-east-1".to_string()),
-            endpoint: env::var("AWS_REGION_ENDPOINT")?,
-        },
-    );
-
-    Ok(S3Storage::new(client, bucket, cache_size))
+    Ok(GcsStorage::new(client))
 }
 
 struct Cors;
@@ -318,67 +274,12 @@ impl Fairing for Cors {
         response.set_header(Header::new("Access-Control-Allow-Origin", "*"));
         response.set_header(Header::new("Access-Control-Allow-Methods", "GET"));
         response.set_header(Header::new("Access-Control-Allow-Headers", "*"));
-    }
-}
-
-#[options("/<_..>")]
-fn cors_options() -> Result<(), Error> {
-    Ok(())
-}
-
-struct WallyVersion;
-
-#[rocket::async_trait]
-impl<'r> FromRequest<'r> for WallyVersion {
-    type Error = Error;
-
-    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let config = request
-            .guard::<&State<Config>>()
-            .await
-            .expect("Failed to load config");
-
-        let minimum_version = match &config.minimum_wally_version {
-            Some(version) => version,
-            None => return Outcome::Success(WallyVersion),
-        };
-
-        let version = match request.headers().get_one("Wally-Version") {
-            Some(version) => version,
-            None => {
-                return format_err!(
-                    "Wally version header required. Try upgrading your wally installation."
-                )
-                .status(Status::UpgradeRequired)
-                .into();
-            }
-        };
-
-        let version = match Version::parse(version) {
-            Ok(version) => version,
-            Err(err) => {
-                return format_err!("Failed to parse wally version header: {}", err)
-                    .status(Status::BadRequest)
-                    .into();
-            }
-        };
-
-        if &version < minimum_version {
-            format_err!(
-                "This registry requires Wally {} (you are using {})",
-                minimum_version,
-                version
-            )
-            .status(Status::UpgradeRequired)
-            .into()
-        } else {
-            Outcome::Success(WallyVersion)
-        }
+        response.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
     }
 }
 
 #[launch]
-fn rocket() -> _ {
+fn rocket() -> rocket::Rocket {
     let figment = Figment::from(rocket::Config::default())
         .merge(Toml::file("Rocket.toml").nested())
         .merge(Env::prefixed("WALLY_").global());

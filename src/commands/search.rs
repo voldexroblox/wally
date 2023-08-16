@@ -1,11 +1,10 @@
 use std::path::PathBuf;
 
 use anyhow::bail;
-use crossterm::style::Color;
-use crossterm::style::SetForegroundColor;
 use reqwest::{blocking::Client, header::AUTHORIZATION};
 use serde::Deserialize;
 use structopt::StructOpt;
+use termion::color::{self};
 
 use crate::{auth::AuthStore, manifest::Manifest, package_index::PackageIndex};
 
@@ -25,7 +24,7 @@ impl SearchSubcommand {
         let manifest = Manifest::load(&self.project_path)?;
         let registry = url::Url::parse(&manifest.package.registry)?;
         let auth_store = AuthStore::load()?;
-        let package_index = PackageIndex::new(&registry, None)?;
+        let package_index = PackageIndex::new(&registry, None, false)?;
         let api = package_index.config()?.api;
 
         let auth = auth_store.tokens.get(api.as_str());
@@ -53,24 +52,24 @@ impl SearchSubcommand {
         println!();
 
         for result in &mut results {
-            print!("{}{}/", SetForegroundColor(Color::DarkGrey), result.scope);
-            print!("{}{}", SetForegroundColor(Color::Reset), result.name);
+            print!("{}{}/", color::Fg(color::LightBlack), result.scope);
+            print!("{}{}", color::Fg(color::Reset), result.name);
             print!(
                 "{}@{}{}",
-                SetForegroundColor(Color::DarkGrey),
-                SetForegroundColor(Color::Green),
+                color::Fg(color::LightBlack),
+                color::Fg(color::Green),
                 result.versions.pop().unwrap(),
             );
 
             if !result.versions.is_empty() {
                 print!(
                     "{} ({})",
-                    SetForegroundColor(Color::DarkGrey),
+                    color::Fg(color::LightBlack),
                     result.versions.join(", ")
                 );
             }
 
-            println!("{}", SetForegroundColor(Color::Reset));
+            println!("{}", color::Fg(color::Reset));
 
             if let Some(description) = &result.description {
                 println!("    {}", description);

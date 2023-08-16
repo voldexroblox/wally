@@ -2,7 +2,7 @@ use std::io::Read;
 use std::sync::Arc;
 
 use anyhow::bail;
-use once_cell::sync::OnceCell;
+use once_cell::unsync::OnceCell;
 use reqwest::{blocking::Client, header::AUTHORIZATION};
 use url::Url;
 
@@ -11,17 +11,12 @@ use crate::manifest::Manifest;
 use crate::package_id::PackageId;
 use crate::package_index::PackageIndex;
 use crate::package_req::PackageReq;
-use crate::package_source::PackageContents;
+use crate::package_source::{PackageContents, PackageSource};
 
-use super::{PackageSourceId, PackageSourceProvider};
-
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-
-#[derive(Clone)]
 pub struct Registry {
     index_url: Url,
     auth_token: OnceCell<Option<Arc<str>>>,
-    index: OnceCell<Arc<PackageIndex>>,
+    index: OnceCell<PackageIndex>,
     client: Client,
 }
 
@@ -41,16 +36,20 @@ impl Registry {
 
     fn auth_token(&self) -> anyhow::Result<Option<Arc<str>>> {
         self.auth_token
-            .get_or_try_init(|| match AuthStore::get_token(self.api_url()?.as_str())? {
-                Some(token) => Ok(Some(Arc::from(token.as_str()))),
-                None => Ok(None),
+            .get_or_try_init(|| {
+                let store = AuthStore::load()?;
+                let token = store.tokens.get(self.api_url()?.as_str());
+                match token {
+                    Some(token) => Ok(Some(Arc::from(token.as_str()))),
+                    None => Ok(None),
+                }
             })
             .map(|token| token.clone())
     }
 
-    fn index(&self) -> anyhow::Result<&Arc<PackageIndex>> {
+    fn index(&self) -> anyhow::Result<&PackageIndex> {
         self.index
-            .get_or_try_init(|| Ok(Arc::new(PackageIndex::new(&self.index_url, None)?)))
+            .get_or_try_init(|| PackageIndex::new(&self.index_url, None, true))
     }
 
     fn api_url(&self) -> anyhow::Result<Url> {
@@ -59,7 +58,7 @@ impl Registry {
     }
 }
 
-impl PackageSourceProvider for Registry {
+impl PackageSource for Registry {
     fn update(&self) -> anyhow::Result<()> {
         self.index()?.update()
     }
@@ -79,6 +78,8 @@ impl PackageSourceProvider for Registry {
     }
 
     fn download_package(&self, package_id: &PackageId) -> anyhow::Result<PackageContents> {
+        log::info!("Downloading {}...", package_id);
+
         let path = format!(
             "/v1/package-contents/{}/{}/{}",
             package_id.name().scope(),
@@ -88,7 +89,7 @@ impl PackageSourceProvider for Registry {
 
         let url = self.api_url()?.join(&path)?;
 
-        let mut request = self.client.get(url).header("Wally-Version", VERSION);
+        let mut request = self.client.get(url);
 
         if let Some(token) = self.auth_token()? {
             request = request.header(AUTHORIZATION, format!("Bearer {}", token));
@@ -97,11 +98,9 @@ impl PackageSourceProvider for Registry {
 
         if !response.status().is_success() {
             bail!(
-                "Failed to download package {} from registry: {}\n{} {}",
+                "Failed to download package {} from registry: {}",
                 package_id,
-                self.api_url()?,
-                response.status(),
-                response.text()?
+                response.status()
             );
         }
 
@@ -109,16 +108,5 @@ impl PackageSourceProvider for Registry {
         response.read_to_end(&mut data)?;
 
         Ok(PackageContents::from_buffer(data))
-    }
-
-    fn fallback_sources(&self) -> anyhow::Result<Vec<PackageSourceId>> {
-        let fallback_registries = self.index()?.config()?.fallback_registries;
-
-        let sources = fallback_registries
-            .into_iter()
-            .map(PackageSourceId::Git)
-            .collect();
-
-        Ok(sources)
     }
 }
