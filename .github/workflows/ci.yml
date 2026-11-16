@@ -19,12 +19,12 @@ jobs:
         rust_version: [stable]
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@0717577d45739eb3c851188b29f50ed6c0b2194e # v2.8.0
 
     - name: Setup Rust toolchain
       run: rustup default ${{ matrix.rust_version }}
 
-    - uses: Swatinem/rust-cache@v2
+    - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
     - name: Build
       run: |
