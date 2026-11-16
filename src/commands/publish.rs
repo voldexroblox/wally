@@ -4,8 +4,11 @@ use anyhow::Context;
 use structopt::StructOpt;
 
 use crate::{
-    auth::AuthStore, manifest::Manifest, package_contents::PackageContents,
-    package_index::PackageIndex, GlobalOptions,
+    auth::{self, AuthStore},
+    manifest::Manifest,
+    package_contents::PackageContents,
+    package_index::PackageIndex,
+    GlobalOptions,
 };
 
 /// Publish this project to a registry.
@@ -33,15 +36,17 @@ impl PublishSubcommand {
             .get(api.as_str())
             .with_context(|| "Authentication is required to publish, use `wally login`")?;
 
+        let url = api.join("/v1/publish")?;
+        let client = auth::token_client(&url)?;
+
         println!(
             "Publishing {} to {}",
             manifest.package_id(),
             package_index.url()
         );
 
-        let client = reqwest::blocking::Client::new();
         let response = client
-            .post(api.join("/v1/publish")?)
+            .post(url)
             .header("accept", "application/json")
             .bearer_auth(auth)
             .body(contents.data().to_owned())

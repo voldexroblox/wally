@@ -9,7 +9,11 @@ use reqwest::Url;
 use serde::Deserialize;
 use structopt::StructOpt;
 
-use crate::{auth::AuthStore, manifest::Manifest, package_index::PackageIndex};
+use crate::{
+    auth::{self, AuthStore},
+    manifest::Manifest,
+    package_index::PackageIndex,
+};
 
 /// Log into a registry.
 #[derive(Debug, StructOpt)]
@@ -108,8 +112,11 @@ impl LoginSubcommand {
         let manifest = Manifest::load(&self.project_path)?;
         let registry = Url::parse(&manifest.package.registry)?;
         let package_index = PackageIndex::new(&registry, None, true)?;
-        let api = package_index.config()?.api;
-        let github_oauth_id = package_index.config()?.github_oauth_id;
+        let config = package_index.config()?;
+        let api = config.api;
+        let github_oauth_id = config.github_oauth_id;
+
+        auth::check_token_url(&api)?;
 
         match github_oauth_id {
             None => prompt_api_key(api),

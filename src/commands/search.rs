@@ -6,7 +6,11 @@ use serde::Deserialize;
 use structopt::StructOpt;
 use termion::color::{self};
 
-use crate::{auth::AuthStore, manifest::Manifest, package_index::PackageIndex};
+use crate::{
+    auth::{self, AuthStore},
+    manifest::Manifest,
+    package_index::PackageIndex,
+};
 
 /// Search a registry for packages matching a query.
 #[derive(Debug, StructOpt)]
@@ -29,14 +33,15 @@ impl SearchSubcommand {
 
         let auth = auth_store.tokens.get(api.as_str());
 
-        let client = Client::new();
-        let mut request = client
-            .get(api.join("/v1/package-search/")?)
-            .query(&[("query", &self.query)]);
+        let url = api.join("/v1/package-search/")?;
 
-        if let Some(auth) = auth {
-            request = request.header(AUTHORIZATION, format!("Bearer {}", auth));
+        let request = match auth {
+            Some(auth) => auth::token_client(&url)?
+                .get(url)
+                .header(AUTHORIZATION, format!("Bearer {}", auth)),
+            None => Client::new().get(url),
         }
+        .query(&[("query", &self.query)]);
 
         let response = request.send()?;
 
