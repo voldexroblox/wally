@@ -18,13 +18,13 @@ jobs:
       previous_tag: ${{ steps.previoustag.outputs.tag }}
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@0717577d45739eb3c851188b29f50ed6c0b2194e # v2.8.0
         with:
           submodules: true
 
       - name: 'Get Previous tag'
         id: previoustag
-        uses: actions-ecosystem/action-get-latest-tag@v1
+        uses: actions-ecosystem/action-get-latest-tag@b7c32daec3395a9616f88548363a42652b22d435 # v1.6.0
         with:
           semver_only: true
         

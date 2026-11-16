@@ -6,11 +6,12 @@ jobs:
   merge-branch:
     if: contains(github.event.pull_request.labels.*.name, 'merged to test')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@master
-
       - name: Merge to test
-        uses: devmasx/merge-branch@master
+        # Receives a token that can push: review the action source before bumping this SHA.
+        uses: devmasx/merge-branch@dd60e3efede0524f24d3b0e08222634430dddbdf # master
         with:
           label_name: 'merged to test'
           target_branch: 'test'
