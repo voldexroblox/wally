@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::Read;
 use std::sync::Arc;
 
@@ -6,7 +7,7 @@ use once_cell::unsync::OnceCell;
 use reqwest::{blocking::Client, header::AUTHORIZATION};
 use url::Url;
 
-use crate::auth::AuthStore;
+use crate::auth::{self, AuthStore};
 use crate::manifest::Manifest;
 use crate::package_id::PackageId;
 use crate::package_index::PackageIndex;
@@ -15,7 +16,7 @@ use crate::package_source::{PackageContents, PackageSource};
 
 pub struct Registry {
     index_url: Url,
-    auth_token: OnceCell<Option<Arc<str>>>,
+    auth_tokens: OnceCell<Arc<HashMap<String, String>>>,
     index: OnceCell<PackageIndex>,
     client: Client,
 }
@@ -28,23 +29,17 @@ impl Registry {
 
         Ok(Self {
             index_url,
-            auth_token: OnceCell::new(),
+            auth_tokens: OnceCell::new(),
             index: OnceCell::new(),
             client: Client::new(),
         })
     }
 
-    fn auth_token(&self) -> anyhow::Result<Option<Arc<str>>> {
-        self.auth_token
-            .get_or_try_init(|| {
-                let store = AuthStore::load()?;
-                let token = store.tokens.get(self.api_url()?.as_str());
-                match token {
-                    Some(token) => Ok(Some(Arc::from(token.as_str()))),
-                    None => Ok(None),
-                }
-            })
-            .map(|token| token.clone())
+    fn auth_token(&self, api: &Url) -> anyhow::Result<Option<String>> {
+        let tokens = self
+            .auth_tokens
+            .get_or_try_init(|| AuthStore::load().map(|store| Arc::new(store.tokens)))?;
+        Ok(tokens.get(api.as_str()).cloned())
     }
 
     fn index(&self) -> anyhow::Result<&PackageIndex> {
@@ -87,13 +82,15 @@ impl PackageSource for Registry {
             package_id.version()
         );
 
-        let url = self.api_url()?.join(&path)?;
+        let api = self.api_url()?;
+        let url = api.join(&path)?;
 
-        let mut request = self.client.get(url);
-
-        if let Some(token) = self.auth_token()? {
-            request = request.header(AUTHORIZATION, format!("Bearer {}", token));
-        }
+        let request = match self.auth_token(&api)? {
+            Some(token) => auth::token_client(&url)?
+                .get(url)
+                .header(AUTHORIZATION, format!("Bearer {}", token)),
+            None => self.client.get(url),
+        };
         let mut response = request.send()?;
 
         if !response.status().is_success() {
