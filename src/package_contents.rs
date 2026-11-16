@@ -1,3 +1,4 @@
+use std::fs::{DirBuilder, OpenOptions};
 use std::io::{self, BufRead, BufReader, Cursor};
 use std::path::{Path, PathBuf};
 
@@ -87,9 +88,32 @@ impl PackageContents {
     }
 
     /// Unpack the package into the given path on the filesystem.
+    ///
+    /// Unix modes stored in the archive are ignored: package contents come from
+    /// untrusted publishers, so files are always created as 0644 and
+    /// directories as 0755 (further restricted by the process umask).
     pub fn unpack_into_path(&self, output: &Path) -> anyhow::Result<()> {
         let mut archive = ZipArchive::new(Cursor::new(self.data.as_slice()))?;
-        archive.extract(output)?;
+
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index)?;
+            let relative_path = entry
+                .enclosed_name()
+                .ok_or_else(|| format_err!("Package contains an invalid path: {}", entry.name()))?;
+            let out_path = output.join(relative_path);
+
+            if entry.is_dir() {
+                create_package_dir(&out_path)?;
+            } else {
+                if let Some(parent) = out_path.parent() {
+                    create_package_dir(parent)?;
+                }
+
+                let mut file = create_package_file(&out_path)?;
+                io::copy(&mut entry, &mut file)?;
+            }
+        }
+
         Ok(())
     }
 
@@ -142,6 +166,42 @@ impl PackageContents {
     pub fn from_buffer(data: Vec<u8>) -> PackageContents {
         PackageContents { data }
     }
+}
+
+#[cfg(unix)]
+const PACKAGE_DIR_MODE: u32 = 0o755;
+#[cfg(unix)]
+const PACKAGE_FILE_MODE: u32 = 0o644;
+
+fn create_package_dir(path: &Path) -> anyhow::Result<()> {
+    let mut builder = DirBuilder::new();
+    builder.recursive(true);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(PACKAGE_DIR_MODE);
+    }
+
+    builder
+        .create(path)
+        .map_err(|err| format_err!("Failed to create directory {}: {}", path.display(), err))
+}
+
+/// Creates a new file for a package entry. Fails if anything already exists at
+/// `path`, so an entry can never be written through an existing file or
+/// symlink, or keep that file's mode.
+fn create_package_file(path: &Path) -> anyhow::Result<File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(PACKAGE_FILE_MODE);
+    }
+
+    Ok(fs_err::OpenOptions::from_options(options).open(path)?)
 }
 
 fn build_glob_set(patterns: &[String]) -> anyhow::Result<GlobSet> {
